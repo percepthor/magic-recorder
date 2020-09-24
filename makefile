@@ -3,8 +3,8 @@ TARGET      := magic-recorder
 PTHREAD 	:= -l pthread
 MATH 		:= -lm
 
-# OPENCV 		:= -l opencv_core -l opencv_imgcodecs -l opencv_highgui -l opencv_shape -l opencv_videoio -l opencv_imgproc
-OPENCV 		:= `pkg-config --cflags --libs opencv`
+OPENCV 		:= -l opencv_core -l opencv_imgcodecs -l opencv_highgui -l opencv_shape -l opencv_videoio -l opencv_imgproc
+# OPENCV 		:= `pkg-config --cflags --libs opencv`
 
 MAGIC_DEBUG		:= -D MAGIC_DEBUG
 
