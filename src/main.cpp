@@ -1,5 +1,8 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
+
+#include <time.h>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -15,6 +18,30 @@
 #include "magic.h"
 #include "version.h"
 
+#define BUFFER_SIZE			1024
+
+static char video_name[BUFFER_SIZE] = { 0 };
+static cv::VideoWriter writer;
+
+static int check_movement (cv::Mat frame) {
+
+	int contador = 0;
+	int valor = 0;
+	uint8_t *data = (uint8_t *) frame.data;
+
+	for (int y = 0; y < frame.rows; y++) {
+		for (int x = 0; x < frame.cols; x++) {
+			valor = *data++;
+			if (valor) {
+				contador++;
+			}
+		}
+	}
+
+	return contador;
+
+}
+
 int main (int argc, char **argv) {
 
 	magic_recorder_version_print_full ();
@@ -24,7 +51,12 @@ int main (int argc, char **argv) {
 	int rotation = 0;
 	int scale_factor = 0;
 	int movement_thresh = 0;
+	int fps = 0;
 
+	unsigned int no_movement_frames = 0;
+	unsigned int max_no_movement_frames = DEFAULT_NO_MOVEMENT_FRAMES;
+
+	String *videos_dir = NULL;
 	String *camera = NULL;
 	cv::VideoCapture cap (camera->str);
 
@@ -67,27 +99,90 @@ int main (int argc, char **argv) {
 				break;
 		}
 
-		int scaled_with = frame_width / scale_factor;
+		int scaled_width = frame_width / scale_factor;
 		int scaled_height = frame_height / scale_factor;
-		cv::Mat previous_frame_gray (scaled_height, scaled_with, CV_8U, cv::Scalar (0));
-		cv::Mat grayScale; // (scaled_height, scaled_with, CV_8U, Scalar (0));
-		cv::Mat diference (scaled_height, scaled_with, CV_8U, cv::Scalar (0));
+		cv::Mat previous_frame_gray (scaled_height, scaled_width, CV_8U, cv::Scalar (0));
+		cv::Mat gray_scale; // (scaled_height, scaled_with, CV_8U, Scalar (0));
+		cv::Mat diference (scaled_height, scaled_width, CV_8U, cv::Scalar (0));
+
+		bool movement = false;
+		int movement_count = 0;
 
 		cv::Mat frame;
+		cv::Mat resized;
 		while (true) {
 			cap >> frame;
 
 			if (!frame.empty ()) {
 				switch (rotation) {
 					case 1: cv::rotate (frame, frame, cv::ROTATE_90_CLOCKWISE); break;
-            		case 2: cv::rotate (frame, frame, cv::ROTATE_90_COUNTERCLOCKWISE); break;
-            		case 3: cv::rotate (frame, frame, cv::ROTATE_180); break;
-            
-            		default: break;
+					case 2: cv::rotate (frame, frame, cv::ROTATE_90_COUNTERCLOCKWISE); break;
+					case 3: cv::rotate (frame, frame, cv::ROTATE_180); break;
+			
+					default: break;
 				}
 
 				// check for movement in frame
-				// TODO:
+				cv::resize (frame, resized, cv::Size (scaled_width, scaled_height));
+				cv::cvtColor (resized, gray_scale, cv::COLOR_BGR2GRAY);
+				// fastNlMeansDenoising (gray_scale, gray_scale, 3.0, 3, 3);
+				cv::absdiff (gray_scale, previous_frame_gray, diference);
+				cv::threshold (diference, diference, 45, 255, cv::THRESH_BINARY);
+
+				movement_count = check_movement (diference);
+				printf ("Movement: %d\n", movement);
+
+				if (!movement) {
+					if (movement_count > movement_thresh) {
+						// create files to save video
+						printf ("\n");
+						log_success ("First movement -> creating video...");
+						printf ("\n");
+
+						snprintf (video_name, BUFFER_SIZE, "%s/%s/%ld.avi", videos_dir->str, camera->str, time (NULL));
+						// MJPG -> fourcc ('D','I','V','X')
+						writer = cv::VideoWriter (video_name, cv::VideoWriter::fourcc ('M','J','P','G'), fps, cv::Size (frame_width, frame_height));
+						if (writer.isOpened ()) {
+							char *status = c_string_create ("Opened %s", video_name);
+							if (status) {
+								log_debug (status);
+								free (status);
+							}
+
+							writer.write (frame);
+						}
+
+						else {
+							char *status = c_string_create ("Failed to open video writer %s", video_name);
+							if (status) {
+								log_error (status);
+								free (status);
+							}
+						}
+						
+						no_movement_frames = 0;
+						movement = true;
+					}
+				}
+
+				else {
+					// check if there is still movement
+					if (movement_count > movement_thresh) {
+						writer.write (frame);
+						no_movement_frames = 0;
+					}
+
+					else {
+						no_movement_frames += 1;
+						if (no_movement_frames >= max_no_movement_frames) {
+							log_warning ("Max no movement frames reached! Stopping current video...");
+							movement = false;
+							writer.release ();
+						}
+					}
+				}
+
+				previous_frame_gray = gray_scale.clone ();
 			}
 
 			else {
