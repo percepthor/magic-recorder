@@ -24,7 +24,7 @@ CPPEXT		:= cpp
 DEPEXT      := d
 OBJEXT      := o
 
-CFLAGS      := $(DEVELOPMENT) $(DEFINES) -Wall -Wno-unknown-pragmas -Wfatal-errors
+CFLAGS      := $(DEVELOPMENT) -Wall -Wno-unknown-pragmas -Wfatal-errors
 LIB         := $(PTHREAD) $(MATH) $(OPENCV)
 
 INC         := -I $(INCDIR) -I /usr/local/include
