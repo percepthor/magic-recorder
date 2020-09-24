@@ -141,6 +141,7 @@ static void *magic_worker_thread (void *null_ptr) {
 #pragma region videos
 
 static void record (
+	String *videos_dir,
 	String *camera_name,
 	int rotation,
 	int scale_factor,
@@ -151,9 +152,7 @@ static void record (
 
 	int no_movement_frames = 0;
 
-	// FIXME:
-	String *videos_dir = NULL;
-	String *camera = NULL;
+	String *camera = str_create ("/dev/%s", camera_name);
 	cv::VideoCapture cap (camera->str);
 
 	if (cap.isOpened ()) {
@@ -185,15 +184,17 @@ static void record (
 				frame_width = cap.get (cv::CAP_PROP_FRAME_HEIGHT);
 				break;
 			case 3:
-				frame_width = cap.get(cv::CAP_PROP_FRAME_WIDTH);
-				frame_height = cap.get(cv::CAP_PROP_FRAME_HEIGHT);
+				frame_width = cap.get (cv::CAP_PROP_FRAME_WIDTH);
+				frame_height = cap.get (cv::CAP_PROP_FRAME_HEIGHT);
 				break;
 		
 			default:
-				frame_width = cap.get(cv::CAP_PROP_FRAME_WIDTH);
-				frame_height = cap.get(cv::CAP_PROP_FRAME_HEIGHT);
+				frame_width = cap.get (cv::CAP_PROP_FRAME_WIDTH);
+				frame_height = cap.get (cv::CAP_PROP_FRAME_HEIGHT);
 				break;
 		}
+
+		int cap_fps = cap.get (cv::CAP_PROP_FPS);
 
 		int scaled_width = frame_width / scale_factor;
 		int scaled_height = frame_height / scale_factor;
@@ -289,8 +290,7 @@ static void record (
 				log_warning ("Empty frame!");
 			}
 
-			// TODO: handle this based on capture real fps
-			cv::waitKey (30);
+			cv::waitKey (cap_fps);
 		}
 	}
 
@@ -324,7 +324,16 @@ static void end (int dummy) {
 
 static void print_help (void) {
 
-
+	printf ("\n");
+	printf ("Usage: ./bin/magic-recorder [args]\n");
+	printf ("-h       	                Print this help\n");
+	printf ("-v [videos dir]            Base path to save video files\n");
+	printf ("-c [camera name]           The camera to use\n");
+	printf ("-r [rotation]           	The frames rotation\n");
+	printf ("-m [movement thresh]       The movmenet threshold to count as movement\n");
+	printf ("--max_no_mov [n frames]    The max number of frames to allow without movement\n");
+	printf ("--fps [value]              Video writer fps\n");
+	printf ("\n");
 
 }
 
@@ -335,6 +344,7 @@ int main (int argc, char **argv) {
 	signal (SIGINT, end);
 	signal (SIGTERM, end);
 
+	String *videos_dir = NULL;
 	String *camera_name = NULL;
 	int rotation = 0;
 	int scale_factor = DEFAULT_SCALE_FACTOR;
@@ -349,6 +359,15 @@ int main (int argc, char **argv) {
 			curr_arg = argv[i];
 
 			if (!strcmp (curr_arg, "-h")) print_help ();
+
+			// videos dir
+			else if (!strcmp (curr_arg, "-v")) {
+				j = i + 1;
+				if (j <= argc) {
+					videos_dir = str_new (argv[j]);
+					i++;
+				}
+			}
 
 			// camera
 			else if (!strcmp (curr_arg, "-c")) {
@@ -404,7 +423,27 @@ int main (int argc, char **argv) {
 			}
 		}
 
-		record (camera_name, rotation, scale_factor, movement_thresh, fps, max_no_movement_frames);
+		if (videos_dir && camera_name) {
+			printf ("\n");
+			printf ("Videos dir: %s\n", videos_dir->str);
+			printf ("Camera: %s\n", camera_name->str);
+			printf ("Rotation: %d\n", rotation);
+			printf ("Scale factor: %d\n", scale_factor);
+			printf ("Movement threshold: %d\n", movement_thresh);
+			printf ("Writer's fps: %d\n", fps);
+			printf ("Max no movement frames: %d\n", max_no_movement_frames);
+			printf ("\n");
+
+			if (!magic_worker_init ()) {
+				record (videos_dir, camera_name, rotation, scale_factor, movement_thresh, fps, max_no_movement_frames);
+			}
+		}
+
+		else {
+			printf ("\n");
+			log_error ("Videos dir & camera name are required!");
+			printf ("\n");
+		}
 	}
 
 	return 0;
