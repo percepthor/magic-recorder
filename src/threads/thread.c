@@ -6,11 +6,11 @@
 #include <pthread.h>
 #include <sys/prctl.h>
 
-#include "cerver/types/types.h"
+#include "types/types.h"
 
-#include "cerver/threads/thread.h"
+#include "threads/thread.h"
 
-#include "cerver/utils/log.h"
+#include "utils/log.h"
 
 #pragma region threads
 
@@ -29,7 +29,7 @@ u8 thread_create_detachable (pthread_t *thread, void *(*work) (void *), void *ar
                 }
 
                 else {
-                    cerver_log_msg (stderr, LOG_TYPE_ERROR, LOG_TYPE_NONE, "Failed to create detachable thread!");
+                    log_msg (stderr, LOG_TYPE_ERROR, LOG_TYPE_NONE, "Failed to create detachable thread!");
                     perror ("Error");
                 }
             }

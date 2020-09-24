@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "cerver/threads/bsem.h"
+#include "threads/bsem.h"
 
 #ifdef CERVER_DEBUG
 #include "cerver/utils/log.h"
