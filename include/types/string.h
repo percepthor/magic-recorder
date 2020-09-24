@@ -1,9 +1,7 @@
 #ifndef _TYPES_STRING_H_
 #define _TYPES_STRING_H_
 
-#include "cerver/types/types.h"
-
-#include "cerver/config.h"
+#include "types/types.h"
 
 typedef struct String {
 

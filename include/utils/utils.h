@@ -4,8 +4,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "cerver/config.h"
-
 /*** misc ***/
 
 extern bool system_is_little_endian (void);

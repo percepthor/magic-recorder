@@ -3,8 +3,6 @@
 
 #include <stdio.h>
 
-#include "cerver/config.h"
-
 #define LOG_COLOR_RED       "\x1b[31m"
 #define LOG_COLOR_GREEN     "\x1b[32m"
 #define LOG_COLOR_YELLOW    "\x1b[33m"
