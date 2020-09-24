@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <unistd.h>
 #include <time.h>
 
 #include <opencv2/core.hpp>
@@ -12,6 +13,10 @@
 #include "types/types.h"
 #include "types/string.h"
 
+#include "threads/bsem.h"
+#include "threads/jobs.h"
+#include "threads/thread.h"
+
 #include "utils/utils.h"
 #include "utils/log.h"
 
@@ -20,8 +25,12 @@
 
 #define BUFFER_SIZE			1024
 
+static bool running = true;
+
 static char video_name[BUFFER_SIZE] = { 0 };
 static cv::VideoWriter writer;
+
+#pragma region movement
 
 static int check_movement (cv::Mat frame) {
 
@@ -41,6 +50,89 @@ static int check_movement (cv::Mat frame) {
 	return contador;
 
 }
+
+#pragma endregion
+
+#pragma region worker
+
+static void *magic_worker_thread (void *null_ptr);
+
+static JobQueue *magic_worker_job_queue = NULL;
+
+static unsigned int magic_worker_init (void) {
+
+	unsigned int retval = 1;
+
+	magic_worker_job_queue = job_queue_create ();
+	if (magic_worker_job_queue) {
+		pthread_t thread_id = 0;
+		if (!thread_create_detachable (&thread_id, magic_worker_thread, NULL)) {
+			retval = 0;
+		}
+	}
+
+	return retval;
+
+}
+
+static unsigned int magic_worker_end (void) {
+
+	bsem_post (magic_worker_job_queue->has_jobs);
+
+	sleep (1);
+
+	job_queue_delete (magic_worker_job_queue);
+
+	return 0;
+
+}
+
+static unsigned int magic_worker_push (cv::Mat *frame) {
+
+	return job_queue_push (
+		magic_worker_job_queue,
+		job_create (NULL, frame)
+	);
+
+}
+
+static void *magic_worker_thread (void *null_ptr) {
+
+	sleep (2);			// wait until everything has started
+
+	log_success ("Magic WORKER thread has started!");
+
+	thread_set_name ("magic-worker");
+
+	Job *job = NULL;
+	cv::Mat *frame = NULL;
+	while (running) {
+		bsem_wait (magic_worker_job_queue->has_jobs);
+		
+		// we are safe to analyze the frames & generate embeddings
+		job = job_queue_pull (magic_worker_job_queue);
+		if (job) {
+			printf ("magic_worker_thread () - New job!\n");
+			frame = (cv::Mat *) job->args;
+
+			// save the frame
+			writer.write (*frame);
+			
+			// delete the frame
+			frame->release ();
+			delete (frame);
+
+			job_delete (job);
+		}
+	}
+
+	log_success ("Magic worker thread has exited!");
+
+	return NULL;
+
+}
+
+#pragma endregion
 
 int main (int argc, char **argv) {
 
@@ -108,22 +200,23 @@ int main (int argc, char **argv) {
 		bool movement = false;
 		int movement_count = 0;
 
-		cv::Mat frame;
+		cv::Mat *frame;
 		cv::Mat resized;
 		while (true) {
-			cap >> frame;
+			frame = new cv::Mat ();
+			cap >> *frame;
 
-			if (!frame.empty ()) {
+			if (!frame->empty ()) {
 				switch (rotation) {
-					case 1: cv::rotate (frame, frame, cv::ROTATE_90_CLOCKWISE); break;
-					case 2: cv::rotate (frame, frame, cv::ROTATE_90_COUNTERCLOCKWISE); break;
-					case 3: cv::rotate (frame, frame, cv::ROTATE_180); break;
+					case 1: cv::rotate (*frame, *frame, cv::ROTATE_90_CLOCKWISE); break;
+					case 2: cv::rotate (*frame, *frame, cv::ROTATE_90_COUNTERCLOCKWISE); break;
+					case 3: cv::rotate (*frame, *frame, cv::ROTATE_180); break;
 			
 					default: break;
 				}
 
 				// check for movement in frame
-				cv::resize (frame, resized, cv::Size (scaled_width, scaled_height));
+				cv::resize (*frame, resized, cv::Size (scaled_width, scaled_height));
 				cv::cvtColor (resized, gray_scale, cv::COLOR_BGR2GRAY);
 				// fastNlMeansDenoising (gray_scale, gray_scale, 3.0, 3, 3);
 				cv::absdiff (gray_scale, previous_frame_gray, diference);
@@ -149,7 +242,8 @@ int main (int argc, char **argv) {
 								free (status);
 							}
 
-							writer.write (frame);
+							// writer.write (frame);
+							magic_worker_push (frame);
 						}
 
 						else {
@@ -168,7 +262,8 @@ int main (int argc, char **argv) {
 				else {
 					// check if there is still movement
 					if (movement_count > movement_thresh) {
-						writer.write (frame);
+						// writer.write (frame);
+						magic_worker_push (frame);
 						no_movement_frames = 0;
 					}
 
@@ -177,6 +272,7 @@ int main (int argc, char **argv) {
 						if (no_movement_frames >= max_no_movement_frames) {
 							log_warning ("Max no movement frames reached! Stopping current video...");
 							movement = false;
+							// FIXME: sync with worker to correctly release the writer
 							writer.release ();
 						}
 					}
