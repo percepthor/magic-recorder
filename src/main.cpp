@@ -29,7 +29,31 @@
 static bool running = true;
 
 static char video_name[BUFFER_SIZE] = { 0 };
-static cv::VideoWriter writer;
+
+#pragma region frames
+
+typedef struct MagicFrame {
+
+	cv::Mat *frame;
+	cv::VideoWriter *writer;
+	bool close_writer;
+
+} MagicFrame;
+
+static MagicFrame *magic_frame_new (cv::Mat *frame, cv::VideoWriter *writer, bool close_writer) {
+
+	MagicFrame *magic_frame = (MagicFrame *) malloc (sizeof (MagicFrame));
+	if (magic_frame) {
+		magic_frame->frame = frame;
+		magic_frame->writer = writer;
+		magic_frame->close_writer = close_writer;
+	}
+
+	return magic_frame;
+
+}
+
+#pragma endregion
 
 #pragma region movement
 
@@ -91,15 +115,6 @@ static unsigned int magic_worker_end (void) {
 
 }
 
-static unsigned int magic_worker_push (cv::Mat *frame) {
-
-	return job_queue_push (
-		magic_worker_job_queue,
-		job_create (NULL, frame)
-	);
-
-}
-
 static void *magic_worker_thread (void *null_ptr) {
 
 	sleep (2);			// wait until everything has started
@@ -109,22 +124,40 @@ static void *magic_worker_thread (void *null_ptr) {
 	thread_set_name ("magic-worker");
 
 	Job *job = NULL;
-	cv::Mat *frame = NULL;
+	MagicFrame *magic_frame = NULL;
 	while (running || magic_worker_job_queue->queue->size) {
 		bsem_wait (magic_worker_job_queue->has_jobs);
 		
 		// we are safe to analyze the frames & generate embeddings
 		job = job_queue_pull (magic_worker_job_queue);
 		if (job) {
-			printf ("magic_worker_thread () - New job!\n");
-			frame = (cv::Mat *) job->args;
+			// printf ("magic_worker_thread () - New job!\n");
+			magic_frame = (MagicFrame *) job->args;
+			if (magic_frame) {
+				if (magic_frame->frame) {
+					// save the frame
+					// writer.write (*frame);
+					if (magic_frame->writer) {
+						magic_frame->writer->write (*magic_frame->frame);
+						// printf ("wrote!\n");
+					}
+					
+					// delete the frame
+					magic_frame->frame->release ();
+					delete (magic_frame->frame);
+				}
 
-			// save the frame
-			writer.write (*frame);
-			
-			// delete the frame
-			frame->release ();
-			delete (frame);
+				if (magic_frame->close_writer) {
+					if (magic_frame->writer) {
+						log_debug ("magic_worker_thread () - Closed video writer");
+
+						magic_frame->writer->release ();
+						delete (magic_frame->writer);
+					}
+				}
+
+				free (magic_frame);
+			}
 
 			job_delete (job);
 		}
@@ -152,7 +185,7 @@ static void record (
 
 	int no_movement_frames = 0;
 
-	String *camera = str_create ("/dev/%s", camera_name);
+	String *camera = str_create ("/dev/%s", camera_name->str);
 	cv::VideoCapture cap (camera->str);
 
 	if (cap.isOpened ()) {
@@ -205,7 +238,9 @@ static void record (
 		bool movement = false;
 		int movement_count = 0;
 
-		cv::Mat *frame;
+		// MagicFrame *magic_frame = NULL;
+		cv::VideoWriter *writer = NULL;
+		cv::Mat *frame = NULL;
 		cv::Mat resized;
 		while (running) {
 			frame = new cv::Mat ();
@@ -228,27 +263,32 @@ static void record (
 				cv::threshold (diference, diference, 45, 255, cv::THRESH_BINARY);
 
 				movement_count = check_movement (diference);
-				printf ("Movement: %d\n", movement);
+				printf ("Movement: %d\n", movement_count);
+
+				// cv::imshow ("output", resized);
 
 				if (!movement) {
-					if (movement_count > movement_thresh) {
+					if (movement_count >= movement_thresh) {
 						// create files to save video
 						printf ("\n");
 						log_success ("First movement -> creating video...");
 						printf ("\n");
 
-						snprintf (video_name, BUFFER_SIZE, "%s/%s/%ld.avi", videos_dir->str, camera->str, time (NULL));
+						snprintf (video_name, BUFFER_SIZE, "%s/%s/%ld.avi", videos_dir->str, camera_name->str, time (NULL));
 						// MJPG -> fourcc ('D','I','V','X')
-						writer = cv::VideoWriter (video_name, cv::VideoWriter::fourcc ('M','J','P','G'), fps, cv::Size (frame_width, frame_height));
-						if (writer.isOpened ()) {
+						writer = new cv::VideoWriter (video_name, cv::VideoWriter::fourcc ('M','J','P','G'), fps, cv::Size (frame_width, frame_height));
+						if (writer->isOpened ()) {
 							char *status = c_string_create ("Opened %s", video_name);
 							if (status) {
 								log_debug (status);
 								free (status);
 							}
 
-							// writer.write (frame);
-							magic_worker_push (frame);
+							// writer->write (*frame);
+							job_queue_push (
+								magic_worker_job_queue,
+								job_create (NULL, magic_frame_new (frame, writer, false))
+							);
 						}
 
 						else {
@@ -266,9 +306,12 @@ static void record (
 
 				else {
 					// check if there is still movement
-					if (movement_count > movement_thresh) {
-						// writer.write (frame);
-						magic_worker_push (frame);
+					if (movement_count >= movement_thresh) {
+						// writer->write (*frame);
+						job_queue_push (
+							magic_worker_job_queue,
+							job_create (NULL, magic_frame_new (frame, writer, false))
+						);
 						no_movement_frames = 0;
 					}
 
@@ -277,8 +320,13 @@ static void record (
 						if (no_movement_frames >= max_no_movement_frames) {
 							log_warning ("Max no movement frames reached! Stopping current video...");
 							movement = false;
-							// FIXME: sync with worker to correctly release the writer
-							writer.release ();
+
+							// sync with worker to correctly release the writer
+							// writer.release ();
+							job_queue_push (
+								magic_worker_job_queue,
+								job_create (NULL, magic_frame_new (NULL, writer, true))
+							);
 						}
 					}
 				}
@@ -445,6 +493,8 @@ int main (int argc, char **argv) {
 			printf ("\n");
 		}
 	}
+
+	else print_help ();
 
 	return 0;
 
