@@ -4,6 +4,7 @@
 
 #include <unistd.h>
 #include <time.h>
+#include <signal.h>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -79,7 +80,10 @@ static unsigned int magic_worker_end (void) {
 
 	bsem_post (magic_worker_job_queue->has_jobs);
 
-	sleep (1);
+	// wait for all frames to be saved
+	while (dlist_size ((magic_worker_job_queue->queue))) {
+		sleep (1);
+	}
 
 	job_queue_delete (magic_worker_job_queue);
 
@@ -106,7 +110,7 @@ static void *magic_worker_thread (void *null_ptr) {
 
 	Job *job = NULL;
 	cv::Mat *frame = NULL;
-	while (running) {
+	while (running || magic_worker_job_queue->queue->size) {
 		bsem_wait (magic_worker_job_queue->has_jobs);
 		
 		// we are safe to analyze the frames & generate embeddings
@@ -134,20 +138,20 @@ static void *magic_worker_thread (void *null_ptr) {
 
 #pragma endregion
 
-int main (int argc, char **argv) {
+#pragma region videos
 
-	magic_recorder_version_print_full ();
+static void record (
+	String *camera_name,
+	int rotation,
+	int scale_factor,
+	int movement_thresh,
+	int fps,
+	int max_no_movement_frames
+) {
 
-	// TODO: get arguments
-	const char *camera_name = NULL;
-	int rotation = 0;
-	int scale_factor = 0;
-	int movement_thresh = 0;
-	int fps = 0;
+	int no_movement_frames = 0;
 
-	unsigned int no_movement_frames = 0;
-	unsigned int max_no_movement_frames = DEFAULT_NO_MOVEMENT_FRAMES;
-
+	// FIXME:
 	String *videos_dir = NULL;
 	String *camera = NULL;
 	cv::VideoCapture cap (camera->str);
@@ -202,7 +206,7 @@ int main (int argc, char **argv) {
 
 		cv::Mat *frame;
 		cv::Mat resized;
-		while (true) {
+		while (running) {
 			frame = new cv::Mat ();
 			cap >> *frame;
 
@@ -298,6 +302,113 @@ int main (int argc, char **argv) {
 		}
 	}
 
+	str_delete (videos_dir);
+	str_delete (camera);
+	str_delete (camera_name);
+
+}
+
+#pragma endregion
+
+#pragma region main
+
+static void end (int dummy) {
+
+	running = false;
+
+	magic_worker_end ();
+
+	exit (0);
+
+}
+
+static void print_help (void) {
+
+
+
+}
+
+int main (int argc, char **argv) {
+
+	magic_recorder_version_print_full ();
+
+	signal (SIGINT, end);
+	signal (SIGTERM, end);
+
+	String *camera_name = NULL;
+	int rotation = 0;
+	int scale_factor = DEFAULT_SCALE_FACTOR;
+	int movement_thresh = DEFAULT_MOVEMENT_THRESH;
+	int fps = DEFAULT_FPS;
+	int max_no_movement_frames = DEFAULT_NO_MOVEMENT_FRAMES;
+
+	if (argc > 1) {
+		int j = 0;
+		const char *curr_arg = NULL;
+		for (int i = 1; i < argc; i++) {
+			curr_arg = argv[i];
+
+			if (!strcmp (curr_arg, "-h")) print_help ();
+
+			// camera
+			else if (!strcmp (curr_arg, "-c")) {
+				j = i + 1;
+				if (j <= argc) {
+					camera_name = str_new (argv[j]);
+					i++;
+				}
+			}
+
+			// rotation
+			else if (!strcmp (curr_arg, "-r")) {
+				j = i + 1;
+				if (j <= argc) {
+					rotation = atoi (argv[j]);
+					i++;
+				}
+			}
+
+			// movement thresh
+			else if (!strcmp (curr_arg, "-m")) {
+				j = i + 1;
+				if (j <= argc) {
+					movement_thresh = atoi (argv[j]);
+					i++;
+				}
+			}
+
+			// max_no_movement_frames
+			else if (!strcmp (curr_arg, "--max_no_mov")) {
+				j = i + 1;
+				if (j <= argc) {
+					movement_thresh = atoi (argv[j]);
+					i++;
+				}
+			}
+
+			// fps
+			else if (!strcmp (curr_arg, "--fps")) {
+				j = i + 1;
+				if (j <= argc) {
+					fps = atoi (argv[j]);
+					i++;
+				}
+			}
+
+			else {
+				char *status = c_string_create ("Unknown argument: %s", curr_arg);
+				if (status) {
+					log_warning (status);
+					free (status);
+				}
+			}
+		}
+
+		record (camera_name, rotation, scale_factor, movement_thresh, fps, max_no_movement_frames);
+	}
+
 	return 0;
 
 }
+
+#pragma endregion
