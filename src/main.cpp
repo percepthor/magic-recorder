@@ -22,6 +22,7 @@
 #include "utils/log.h"
 
 #include "magic.h"
+#include "files.h"
 #include "version.h"
 
 #define BUFFER_SIZE			1024
@@ -273,6 +274,12 @@ static void record (
 						printf ("\n");
 						log_success ("First movement -> creating video...");
 						printf ("\n");
+
+						char *dir = c_string_create ("%s/%s", videos_dir->str, camera_name->str);
+						if (dir) {
+							files_create_dir (dir, 0777);
+							free (dir);
+						}
 
 						snprintf (video_name, BUFFER_SIZE, "%s/%s/%ld.avi", videos_dir->str, camera_name->str, time (NULL));
 						// MJPG -> fourcc ('D','I','V','X')
