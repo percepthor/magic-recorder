@@ -296,6 +296,8 @@ static void record (
 								magic_worker_job_queue,
 								job_create (NULL, magic_frame_new (frame, writer, false))
 							);
+
+							frame = NULL;
 						}
 
 						else {
@@ -319,6 +321,8 @@ static void record (
 							magic_worker_job_queue,
 							job_create (NULL, magic_frame_new (frame, writer, false))
 						);
+
+						frame = NULL;
 						no_movement_frames = 0;
 					}
 
@@ -334,6 +338,8 @@ static void record (
 								magic_worker_job_queue,
 								job_create (NULL, magic_frame_new (NULL, writer, true))
 							);
+
+							frame = NULL;
 						}
 					}
 				}
@@ -345,7 +351,12 @@ static void record (
 				log_warning ("Empty frame!");
 			}
 
-			cv::waitKey (cap_fps);
+			// cv::waitKey (cap_fps);
+
+			if (frame) {
+				frame->release ();
+				delete (frame);
+			}
 		}
 	}
 
@@ -455,7 +466,7 @@ int main (int argc, char **argv) {
 			else if (!strcmp (curr_arg, "--max_no_mov")) {
 				j = i + 1;
 				if (j <= argc) {
-					movement_thresh = atoi (argv[j]);
+					max_no_movement_frames = atoi (argv[j]);
 					i++;
 				}
 			}
