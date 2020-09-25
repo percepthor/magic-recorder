@@ -6,6 +6,8 @@
 #include <time.h>
 #include <signal.h>
 
+// #include <sys/sysinfo.h>
+
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -268,6 +270,12 @@ static void record (
 
 				// cv::imshow ("output", resized);
 
+				// TODO: create a condition where it stops sending images if there is not avaible memory with this funciotn:
+				//  printf(
+				// 		"get_avphys_pages() * sysconf(_SC_PAGESIZE) = 0x%lX\n",
+				// 		get_avphys_pages() * sysconf(_SC_PAGESIZE)
+				// 	); 
+
 				if (!movement) {
 					if (movement_count >= movement_thresh) {
 						// create files to save video
@@ -337,6 +345,16 @@ static void record (
 							job_queue_push (
 								magic_worker_job_queue,
 								job_create (NULL, magic_frame_new (NULL, writer, true))
+							);
+
+							// frame = NULL;
+						}
+						
+						else {
+							// Aqui es donde hice el cambio:
+							job_queue_push (
+								magic_worker_job_queue,
+								job_create (NULL, magic_frame_new (frame, writer, false))
 							);
 
 							frame = NULL;
